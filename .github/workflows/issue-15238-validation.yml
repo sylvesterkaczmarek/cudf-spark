@@ -1,0 +1,23 @@
+name: Issue 15238 isolated validation
+on:
+  push:
+    branches: [validation/issue-15238-20261107]
+permissions:
+  contents: read
+jobs:
+  validate:
+    if: github.repository == 'sylvesterkaczmarek/cudf-spark'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate test prerequisites
+        run: |
+          python --version
+          test -f integration_tests/src/main/python/conftest.py
+          git status --short
