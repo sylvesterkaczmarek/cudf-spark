@@ -237,6 +237,20 @@ def is_gbk_supported():
         _jvm_available_charsets = _get_java_available_charsets()
     return 'GBK' in _jvm_available_charsets
 
+def _get_allow_non_gpu_any(mark):
+    """Validate legacy marker keywords even on an inactive runtime branch."""
+    unknown_kwargs = set(mark.kwargs) - {'any'}
+    if unknown_kwargs:
+        raise TypeError(
+            f"{mark.name} got unexpected keyword argument(s) "
+            f"{sorted(unknown_kwargs)}; only 'any' is supported.")
+    allow_any = mark.kwargs.get('any', False)
+    if not isinstance(allow_any, bool):
+        raise TypeError(
+            f"The 'any' parameter of '{mark.name}' must be a Boolean.")
+    return allow_any
+
+
 def pytest_runtest_setup(item):
     global _sort_on_spark
     global _sort_locally
@@ -285,15 +299,16 @@ def pytest_runtest_setup(item):
       else not item.get_closest_marker('disable_ansi_mode')
 
     if non_gpu_databricks:
+        allow_any_databricks = _get_allow_non_gpu_any(non_gpu_databricks)
         if is_databricks_runtime():
-            if non_gpu_databricks.kwargs and non_gpu_databricks.kwargs['any']:
+            if allow_any_databricks:
                 _allow_any_non_gpu_databricks = True
             elif non_gpu_databricks.args:
                 _non_gpu_allowed_databricks = non_gpu_databricks.args
             else:
                 warnings.warn('allow_non_gpu_databricks marker without anything allowed')
     if non_gpu:
-        if non_gpu.kwargs and non_gpu.kwargs['any']:
+        if _get_allow_non_gpu_any(non_gpu):
             _allow_any_non_gpu = True
             _non_gpu_allowed = []
         elif non_gpu.args:
@@ -636,6 +651,11 @@ def pytest_collection_modifyitems(config, items):
         _maybe_apply_random_select(config, items)
     r = random.Random(oom_random_injection_seed)
     for item in items:
+        # Reject malformed keywords before formatting node IDs or running tests.
+        for marker_name in ('allow_non_gpu', 'allow_non_gpu_databricks'):
+            marker = item.get_closest_marker(marker_name)
+            if marker:
+                _get_allow_non_gpu_any(marker)
         extras = []
         order = item.get_closest_marker('ignore_order')
         # decide if OOMs should be injected, and when
@@ -686,7 +706,7 @@ def pytest_collection_modifyitems(config, items):
                 extras.append('APPROXIMATE_FLOAT')
         non_gpu = item.get_closest_marker('allow_non_gpu')
         if non_gpu:
-            if non_gpu.kwargs and non_gpu.kwargs['any']:
+            if _get_allow_non_gpu_any(non_gpu):
                 extras.append('ALLOW_NON_GPU(ANY)')
             elif non_gpu.args:
                 extras.append('ALLOW_NON_GPU(' + ','.join(non_gpu.args) + ')')
